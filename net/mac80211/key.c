@@ -322,7 +322,7 @@ static void ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 		return;
 
 	if (new)
-		list_add_tail(&new->list, &sdata->key_list);
+		list_add_tail_rcu(&new->list, &sdata->key_list);
 
 	WARN_ON(new && old && new->conf.keyidx != old->conf.keyidx);
 
@@ -370,7 +370,7 @@ static void ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 	}
 
 	if (old)
-		list_del(&old->list);
+		list_del_rcu(&old->list);
 }
 
 struct ieee80211_key *
@@ -801,6 +801,43 @@ void ieee80211_iter_keys(struct ieee80211_hw *hw,
 	mutex_unlock(&local->key_mtx);
 }
 EXPORT_SYMBOL(ieee80211_iter_keys);
+
+/* Backport of upstream commit 30f6cf96911b ("mac80211: add an RCU-safe key
+ * iterator"), which first appeared in 4.10. rtw88's firmware-recovery path
+ * needs to walk the key list from a context that cannot take the RTNL or
+ * key_mtx that ieee80211_iter_keys() requires. The key list is published
+ * with list_add_tail_rcu()/list_del_rcu() above, and every removal path in
+ * this file already waits a grace period (synchronize_net()) before the key
+ * is destroyed, so RCU readers are safe.
+ */
+void ieee80211_iter_keys_rcu(struct ieee80211_hw *hw,
+			     struct ieee80211_vif *vif,
+			     void (*iter)(struct ieee80211_hw *hw,
+					  struct ieee80211_vif *vif,
+					  struct ieee80211_sta *sta,
+					  struct ieee80211_key_conf *key,
+					  void *data),
+			     void *iter_data)
+{
+	struct ieee80211_local *local = hw_to_local(hw);
+	struct ieee80211_key *key;
+	struct ieee80211_sub_if_data *sdata;
+
+	if (vif) {
+		sdata = vif_to_sdata(vif);
+		list_for_each_entry_rcu(key, &sdata->key_list, list)
+			iter(hw, &sdata->vif,
+			     key->sta ? &key->sta->sta : NULL,
+			     &key->conf, iter_data);
+	} else {
+		list_for_each_entry_rcu(sdata, &local->interfaces, list)
+			list_for_each_entry_rcu(key, &sdata->key_list, list)
+				iter(hw, &sdata->vif,
+				     key->sta ? &key->sta->sta : NULL,
+				     &key->conf, iter_data);
+	}
+}
+EXPORT_SYMBOL(ieee80211_iter_keys_rcu);
 
 static void ieee80211_free_keys_iface(struct ieee80211_sub_if_data *sdata,
 				      struct list_head *keys)

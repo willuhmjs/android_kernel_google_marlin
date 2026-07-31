@@ -84,9 +84,17 @@ ifeq ($(cc-name),clang)
 # This is a workaround for https://bugs.llvm.org/show_bug.cgi?id=30792.
 # TODO: revert when this is fixed in LLVM.
 KBUILD_CFLAGS	+= -mno-implicit-float
-else
-KBUILD_CFLAGS	+= -mgeneral-regs-only
 endif
+# -mgeneral-regs-only must apply to clang as well. Without it a variadic
+# function has to build an AAPCS64 FP register save area, which makes clang
+# split the frame: it stores the GP vararg registers at negative offsets from
+# x29 and only allocates that space in a later "stp q0, q1, [sp,#-256]!".
+# Those stores land below sp, and arm64 has neither a red zone nor (in 4.4) a
+# separate IRQ stack, so an interrupt taken in that window overwrites the saved
+# varargs with its own pt_regs. The result is rare, random corruption in any
+# printf-style call - e.g. vsnprintf reading a stale userspace pointer for %s.
+# llvm.org/pr30792 has long been fixed; clang 10 accepts the flag fine.
+KBUILD_CFLAGS	+= -mgeneral-regs-only
 KBUILD_CFLAGS	+= $(lseinstr) $(vdso32)
 KBUILD_CFLAGS	+= -fno-pic
 KBUILD_CFLAGS	+= $(call cc-option, -mpc-relative-literal-loads)
