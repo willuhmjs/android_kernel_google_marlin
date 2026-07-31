@@ -79,7 +79,7 @@ DEFCONFIG=${TARGET}_${DEVICE}_defconfig
 [ -f "$RDIR/arch/$ARCH/configs/${DEFCONFIG}" ] ||
 ABORT "Config $DEFCONFIG not found in $ARCH configs!"
 
-export LOCALVERSION=$TARGET-$DEVICE-$RELEASE_VERSION
+export LOCALVERSION=$TARGET-$DEVICE-willuhmjs-$RELEASE_VERSION
 
 CLEAN_BUILD() {
 	echo "Cleaning build..."
